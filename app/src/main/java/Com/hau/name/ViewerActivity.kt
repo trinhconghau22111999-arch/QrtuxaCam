@@ -1,10 +1,12 @@
 package Com.hau.name
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -17,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import Com.hau.name.storage.LocalVideoStore
@@ -65,6 +68,24 @@ class ViewerActivity : AppCompatActivity(), ViewerRecordingService.Listener {
         override fun onServiceDisconnected(name: ComponentName?) { service = null }
     }
 
+    // Xin quyền POST_NOTIFICATIONS (Android 13+) trước khi start foreground service.
+    // Nếu không có quyền này, service không thể hiện notification -> Android 14 throw
+    // ForegroundServiceStartNotAllowedException -> app văng ngay khi vào màn hình Máy Xem.
+    private val notifPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> startViewerService() } // dù cấp hay từ chối vẫn start, service vẫn chạy được
+    //   nhưng notification sẽ không hiện nếu bị từ chối (Android 14 vẫn cho start service
+    //   miễn là quyền đã được HỎI ít nhất 1 lần, không throw nữa).
+
+    private fun startViewerService() {
+        val intent = Intent(this, ViewerRecordingService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+        if (!bound) {
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+            bound = true
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_viewer)
@@ -88,12 +109,16 @@ class ViewerActivity : AppCompatActivity(), ViewerRecordingService.Listener {
             BatteryOptimizationHelper.requestIgnore(this)
         }
 
-        // Khởi động (nếu chưa chạy) + bind vào service ghi hình nền — service tồn tại độc
-        // lập với Activity nên nếu đã có camera đang chạy từ trước, ta chỉ cần bind lại.
-        val intent = Intent(this, ViewerRecordingService::class.java)
-        ContextCompat.startForegroundService(this, intent)
-        bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        bound = true
+        // Xin quyền POST_NOTIFICATIONS trước khi start foreground service (Android 13+).
+        // Nếu đã có quyền hoặc Android < 13 thì start thẳng, không cần hỏi.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            startViewerService()
+        }
     }
 
     private fun showAddCameraDialog() {
@@ -293,8 +318,7 @@ class ViewerActivity : AppCompatActivity(), ViewerRecordingService.Listener {
     override fun onStart() {
         super.onStart()
         if (!bound) {
-            bindService(Intent(this, ViewerRecordingService::class.java), connection, Context.BIND_AUTO_CREATE)
-            bound = true
+            startViewerService() // bao gồm cả bind, đảm bảo service đang chạy
         }
         findViewById<View>(R.id.banner_battery).visibility =
             if (BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this)) View.GONE else View.VISIBLE
