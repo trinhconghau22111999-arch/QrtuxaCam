@@ -6,33 +6,19 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 
 /**
- * Tự động khởi động lại camera khi:
- * - Máy khởi động xong (BOOT_COMPLETED) — vd. sau khi mất điện rồi có điện lại, người cắm sạc
- *   bật nguồn máy lên bằng tay.
- * - App vừa được cập nhật (MY_PACKAGE_REPLACED) — để không phải mở tay lại sau khi tự cập nhật.
- *
- * CHỈ áp dụng cho máy đang đóng vai trò CAMERA (đã từng bấm "Bắt đầu làm Camera" ít nhất 1 lần,
- * tức đã có mã cố định lưu trong SharedPreferences) — máy xem (Máy A) không cần tự bật lại vì
- * người dùng phải chủ động mở app để xem.
- *
- * Android CHO PHÉP khởi động foreground service ngay từ BroadcastReceiver phản hồi
- * BOOT_COMPLETED (đây là 1 trong các trường hợp ngoại lệ được phép start-from-background).
+ * Tự khởi động lại CameraStreamService sau khi máy reboot hoặc app được cập nhật.
+ * Chỉ khởi động lại nếu phiên camera đang THỰC SỰ hoạt động (KEY_SESSION_ACTIVE = true).
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != "android.intent.action.MY_PACKAGE_REPLACED"
-        ) return
-
+        val action = intent.action ?: return
+        if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val prefs = context.getSharedPreferences(CameraActivity.PREFS_NAME, Context.MODE_PRIVATE)
-        val fixedCode = prefs.getString(CameraActivity.KEY_FIXED_CODE, null) ?: return
-
+        val code = prefs.getString(CameraActivity.KEY_FIXED_CODE, null) ?: return
+        if (!prefs.getBoolean(CameraActivity.KEY_SESSION_ACTIVE, false)) return
         val serviceIntent = Intent(context, CameraStreamService::class.java).apply {
-            putExtra(CameraStreamService.EXTRA_ROOM_CODE, fixedCode)
+            putExtra(CameraStreamService.EXTRA_ROOM_CODE, code)
         }
         ContextCompat.startForegroundService(context, serviceIntent)
-        // Đánh dấu phiên đang chạy thật — để nếu người dùng mở lại CameraActivity sau khi máy
-        // vừa khởi động lại, UI hiện đúng là "đang hoạt động" thay vì trống trơn.
-        prefs.edit().putBoolean(CameraActivity.KEY_SESSION_ACTIVE, true).apply()
     }
 }

@@ -9,7 +9,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "Com.cam.name"
+        applicationId = "Com.qrtuxacam.name"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -40,16 +40,13 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // Firebase — dùng làm Signaling Server (không cần tự dựng server riêng)
+    // Firebase — signaling WebRTC
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
     implementation("com.google.firebase:firebase-database-ktx")
 
-    // WebRTC — truyền video màn hình theo thời gian thực
+    // WebRTC
     implementation("io.github.webrtc-sdk:android:125.6422.06.1")
 
-    // Coroutines cho xử lý bất đồng bộ
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-
-    // lifecycleScope dùng để chạy coroutine tải danh sách video / thumbnail gắn với vòng đời Activity
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
 }
