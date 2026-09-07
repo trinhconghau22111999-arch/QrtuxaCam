@@ -64,6 +64,20 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * SỬA LỖI "bấm back là văng app": đây là Activity DUY NHẤT trong app (MainActivity tự
+     * finish() ngay sau khi mở CameraActivity), nên back mặc định sẽ finish() nốt luôn Activity
+     * cuối cùng này -> hệ thống dọn sạch task, cảm giác như app bị "văng"/đóng đột ngột — dù
+     * CameraStreamService (camera + WebRTC) có thể vẫn đang chạy nền phía sau, việc mất hẳn màn
+     * hình UI đột ngột vẫn gây cảm giác app crash. Đây vốn là app "chạy nền" (camera giám sát),
+     * nên back phải đưa app xuống nền (giống bấm Home) chứ không đóng hẳn - camera/service vẫn
+     * tiếp tục chạy đúng như thiết kế, người dùng có thể mở lại app bất cứ lúc nào từ Recents.
+     */
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        moveTaskToBack(true)
+    }
+
     override fun onResume() {
         super.onResume()
         findViewById<android.view.View>(R.id.banner_battery).visibility =

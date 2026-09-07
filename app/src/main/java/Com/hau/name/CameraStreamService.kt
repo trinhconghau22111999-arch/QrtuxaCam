@@ -219,7 +219,15 @@ class CameraStreamService : Service() {
             }
             override fun onChildChanged(snapshot: DataSnapshot, prevKey: String?) {}
             override fun onChildMoved(snapshot: DataSnapshot, prevKey: String?) {}
-            override fun onCancelled(error: DatabaseError) {}
+            override fun onCancelled(error: DatabaseError) {
+                // Trước đây bỏ trống hoàn toàn - nếu Firebase Rules chặn quyền đọc (permission
+                // denied), camera sẽ KHÔNG BAO GIỜ thấy máy xem nào tới, dù máy xem đã kết nối
+                // thành công phía họ - và không có bất kỳ dấu vết nào để biết vì sao. Ghi log rõ
+                // ràng để dễ chẩn đoán qua Logcat/adb khi gặp lại tình trạng "máy tính báo đang
+                // kết nối mãi không xong".
+                Log.e(TAG, "Mất quyền đọc rooms/$code/viewers - kiểm tra lại Firebase Database Rules: " +
+                    "${error.code} ${error.message}")
+            }
         }
         viewersChildListener = listener
         ref.addChildEventListener(listener)
