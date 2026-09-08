@@ -1,38 +1,72 @@
-# Camera Giám Sát Gia Đình
+# QR Cam (QrtuxaCam) — biến điện thoại cũ thành webcam cho máy tính
 
-Ứng dụng biến 1 điện thoại cũ thành camera giám sát, xem trực tiếp từ điện thoại
-khác. Video được ghi lại theo từng đoạn 15 phút và lưu **vĩnh viễn ngay trên
-chính máy xem** — không dùng Google Drive hay bất kỳ server lưu trữ nào ở giữa.
+Ứng dụng Android biến 1 điện thoại thành **webcam không dây**, truyền hình ảnh
+camera SAU theo thời gian thực sang ứng dụng **Qrtuxa** trên máy tính qua
+WebRTC. Đây **không phải** ứng dụng camera-giám-sát-2-chiều-giữa-2-điện-thoại —
+phía "xem" luôn là app máy tính Qrtuxa, không phải một điện thoại khác.
+
+> Repo liên quan: [Qrtuxa](https://github.com/trinhconghau22111999-arch/Qrtuxa)
+> (app máy tính, đóng vai trò "máy xem" + ghi hình + các tính năng khác).
+
+## App làm gì (đúng như code hiện tại)
+
+- App chỉ có **1 vai trò duy nhất**: máy camera. Mở app là vào thẳng màn hình
+  camera, không có bước chọn vai trò.
+- Màn hình đầu tiên bắt tick đồng ý ("Tôi đồng ý dùng điện thoại này làm
+  webcam") mới bật được nút "Bắt đầu làm Webcam".
+- Bấm nút sẽ xin quyền **Camera** (và **Thông báo** trên Android 13+) bằng hộp
+  thoại hệ thống.
+- Sau khi cấp quyền, app sinh ra **1 mã 6 số cố định vĩnh viễn cho máy này**
+  (chỉ sinh ngẫu nhiên đúng 1 lần, lưu lại và dùng mãi mãi kể cả sau khi dừng
+  webcam hay khởi động lại máy) — đọc mã này để nhập vào ô "QR Cam" trên
+  Qrtuxa.
+- App tự chọn ống kính SAU có **góc nhìn rộng nhất** (so sánh FOV tính từ
+  thông số cảm biến + tiêu cự từng ống, không phải ống mặc định), quay
+  **1280x720 @ 20fps**, và bắt đầu chạy `CameraStreamService` (foreground
+  service, loại `camera`).
+- Phục vụ được tối đa **4 máy xem cùng lúc** (4 phiên Qrtuxa khác nhau nhập
+  cùng mã), mỗi máy xem có kênh WebRTC + cơ chế tự kết nối lại (backoff) hoàn
+  toàn độc lập — 1 máy rớt mạng không ảnh hưởng các máy khác.
+- **Một chiều duy nhất**: máy tính không có bất kỳ cách nào gửi lệnh điều
+  khiển hay thao tác ngược lại điện thoại.
+- Thông báo (notification) luôn hiển thị khi đang chạy, có nút "Kết thúc"
+  ngay trên thông báo, và hiện số máy đang xem dạng `x/4`.
+- Bấm **nút Back sẽ đưa app xuống nền** (`moveTaskToBack`) chứ không đóng hẳn
+  — webcam vẫn tiếp tục chạy, vì đây vốn là app chạy nền theo thiết kế.
+- Có banner + nút nhắc loại trừ tối ưu hoá pin ngay trên màn hình chính nếu
+  chưa được cấp, để tránh hệ thống tắt ngầm webcam khi màn hình tắt lâu.
+- Tự khởi động lại webcam sau khi **khởi động lại máy** hoặc **app được cập
+  nhật**, nếu phiên đang hoạt động lúc đó (`BootReceiver`).
+- Bấm "Dừng Webcam" (trong app hoặc trên thông báo) sẽ tắt camera + xoá danh
+  sách máy xem trên Firebase, nhưng **giữ nguyên mã cố định** để dùng lại lần
+  sau — không phải đọc mã mới mỗi lần.
 
 ## Kiến trúc
 
-- **Máy Camera (điện thoại đặt cố định):** `CameraActivity` → `CameraStreamService`
-  — tự chọn ống kính sau có góc nhìn rộng nhất, quay 1280x720@20fps, phục vụ
-  tối đa 4 máy xem cùng lúc qua WebRTC.
-- **Máy Xem:** `ViewerActivity` → `ViewerRecordingService` (chạy nền, không phụ
-  thuộc màn hình có mở hay không)
-  - Xem trực tiếp nhiều camera cùng lúc (danh sách hoặc lưới 2x2).
-  - Ghi hình tối đa vài camera song song, cắt đoạn 15 phút (`SegmentedRecorder`),
-    căn đúng mốc giờ tường (:00/:15/:30/:45) để ghép hàng đúng giữa các camera.
-  - `storage/LocalVideoStore.kt`: lưu video vĩnh viễn trong thư mục riêng của
-    app trên máy xem, có thể đặt số ngày tự xoá video cũ để đỡ đầy máy.
-  - `VideoGalleryActivity` + `MultiViewPlayerActivity`: xem lại video đã lưu,
-    phát thẳng từ file cục bộ (không cần tải/stream qua mạng).
-- **Signaling (ghép nối 2 máy):** Firebase Realtime Database — không cần tự
-  dựng server riêng.
-- **Truyền video trực tiếp:** WebRTC.
+- `MainActivity` → mở thẳng `CameraActivity` (không có màn chọn vai trò).
+- `CameraActivity`: màn hình đồng ý + xin quyền + hiển thị mã + nút dừng.
+- `CameraStreamService`: foreground service giữ camera + WebRTC sống, quản lý
+  wake lock, danh sách máy xem, và thông báo.
+- `webrtc/PeerConnectionManager.kt`, `webrtc/SignalingClient.kt`: lớp WebRTC +
+  trao đổi tín hiệu (offer/answer/ICE) qua Firebase.
+- `BatteryOptimizationHelper.kt`: banner + nút xin miễn trừ tối ưu hoá pin.
+- `BootReceiver.kt`: tự khởi động lại webcam sau khi reboot/cập nhật app.
+- **Signaling (ghép nối với máy tính):** Firebase Realtime Database, đường dẫn
+  `rooms/{mã 6 số}` — không cần tự dựng server riêng.
+- **Truyền video:** WebRTC trực tiếp giữa điện thoại và máy tính.
 
 ## Bước 1 — Tạo dự án Firebase
 
 1. Tạo project trên [Firebase Console](https://console.firebase.google.com),
    thêm app Android với package name khớp `applicationId` trong
-   `app/build.gradle.kts`.
+   `app/build.gradle.kts` (hiện tại: `Com.qrtuxacam.name`).
 2. Tải file `google-services.json` từ Firebase Console, đặt vào `app/`
    (file này đã có trong `.gitignore`, sẽ không bị commit lên repo public).
-3. Firebase Console → **Realtime Database** → **Create database** → chọn
-   **test mode** để bắt đầu (siết lại rule khi dùng thật, xem gợi ý bên dưới).
+3. Firebase Console → **Realtime Database** → **Create database**.
 
-### Gợi ý Realtime Database Rules (siết bảo mật cơ bản)
+### Realtime Database Rules
+
+App này chỉ cần đọc/ghi dưới `rooms/{mã 6 số}`:
 
 ```json
 {
@@ -40,17 +74,19 @@ chính máy xem** — không dùng Google Drive hay bất kỳ server lưu trữ
     "rooms": {
       "$roomCode": {
         ".read": true,
-        ".write": true,
-        ".validate": "newData.hasChildren(['status'])"
+        ".write": true
       }
     }
   }
 }
 ```
 
-Đây là mức tối thiểu để chạy demo. Khi triển khai thật, nên thêm Firebase
-Authentication (ẩn danh) và giới hạn quyền ghi theo UID để tránh người lạ
-ghi đè phòng của người khác.
+⚠️ **Nếu dùng chung 1 Firebase project với app Qrtuxa trên máy tính** (project
+mặc định hiện tại tên `qrremod`), Qrtuxa còn dùng thêm đường dẫn
+`sessions/{id}` cho tính năng "chia sẻ QR" riêng của nó — đừng dán đè rules chỉ
+có `rooms` mà mất luôn quyền của `sessions`. Xem file rules đầy đủ (cả 2 nhánh)
+trong README của repo
+[Qrtuxa](https://github.com/trinhconghau22111999-arch/Qrtuxa).
 
 ## Bước 2 — Build APK bằng GitHub Actions (không cần máy tính cài Android Studio)
 
@@ -62,36 +98,31 @@ ghi đè phòng của người khác.
    ```
    Dán kết quả vào ô Secret — **không dán vào bất kỳ file nào được commit lên
    repo**, kể cả README này.
-2. Vào tab **Actions**, chạy workflow **Build Debug APK** (hoặc chỉ cần push
-   lên nhánh `main`).
-3. Sau khi build xong, mở run vừa chạy → mục **Artifacts** → tải APK debug về,
-   cài vào 2 máy.
+2. Vào tab **Actions**, chạy workflow build APK (hoặc chỉ cần push lên nhánh
+   `main`).
+3. Sau khi build xong, mở run vừa chạy → mục **Artifacts** → tải APK về, cài
+   vào điện thoại.
 
-## Bước 3 — Cài đặt trên 2 máy
+## Bước 3 — Sử dụng
 
-**Máy Camera (điện thoại đặt cố định, ví dụ điện thoại cũ):**
-1. Mở app → chọn vai trò "Máy Camera".
-2. Đồng ý, cấp quyền Camera khi được hỏi.
-3. Mã ghép nối 6 số hiện ra — mã này **cố định vĩnh viễn** cho máy này, đọc
-   cho người dùng máy xem.
-4. Vào **Cài đặt → Pin → Không tối ưu hoá pin** cho app này, để camera không
-   bị hệ thống tắt ngầm khi màn hình tắt lâu.
-
-**Máy Xem:**
-1. Mở app → chọn vai trò "Máy Xem".
-2. Bấm thêm camera → nhập mã 6 số của Máy Camera.
-3. Bật ghi hình cho camera muốn lưu lại (tối đa vài camera cùng lúc).
-4. Vào **Cài đặt → Pin → Không tối ưu hoá pin** cho app này, để việc ghi hình
-   nền không bị hệ thống dừng.
-5. Video đã ghi xem lại trong "Xem video đã lưu" — có thể chỉnh số ngày tự
-   xoá video cũ trong mục cài đặt cạnh đó.
+1. Mở app trên điện thoại muốn dùng làm webcam.
+2. Tick đồng ý → bấm "Bắt đầu làm Webcam" → cấp quyền Camera (và Thông báo
+   nếu được hỏi).
+3. Đọc mã 6 số hiện ra, nhập đúng mã này vào ô **QR Cam** trên app Qrtuxa ở
+   máy tính.
+4. Nếu thấy banner nhắc về pin, bấm nút bên cạnh để loại trừ tối ưu hoá pin
+   cho app — giúp webcam không bị hệ thống tắt ngầm khi màn hình tắt lâu.
+5. Muốn dừng: bấm "Dừng Webcam" trong app, hoặc bấm "Kết thúc" ngay trên
+   thông báo. Mã cố định vẫn giữ nguyên cho lần dùng sau.
 
 ## Nguyên tắc thiết kế cần giữ nguyên khi chỉnh sửa
 
-- Không dùng Google Drive hay bất kỳ dịch vụ lưu trữ đám mây nào — video chỉ
-  lưu trên chính máy xem.
-- Không dựng server proxy nào để phát lại video — luôn phát thẳng từ file cục bộ.
-- Mỗi đoạn ghi hình dài đúng 15 phút, căn theo mốc giờ tường (:00/:15/:30/:45)
-  để các camera khác nhau ghép đúng hàng khi xem lại.
-- Notification "Đang ghi hình / đang xem" luôn hiển thị trong lúc service nền
-  đang chạy, không được ẩn.
+- App này **không** lưu hay ghi hình bất kỳ đoạn video nào — chỉ truyền hình
+  ảnh trực tiếp một chiều. Việc ghi hình/lưu trữ (nếu có) là trách nhiệm của
+  app Qrtuxa phía máy xem, không phải app này.
+- Không có kênh nào để máy tính gửi lệnh điều khiển ngược lại điện thoại.
+- Mã ghép nối là **cố định vĩnh viễn theo từng máy**, không đổi mỗi lần mở
+  app hay mỗi lần bắt đầu phiên mới.
+- Notification "đang hoạt động" luôn hiển thị trong lúc service nền đang
+  chạy, không được ẩn.
+- Bấm Back luôn đưa app xuống nền, không đóng hẳn ứng dụng.
